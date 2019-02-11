@@ -860,7 +860,6 @@ ngx_rtmp_hls_get_fragment_datetime(ngx_rtmp_session_t *s, uint64_t ts)
     datetime->data = NULL;
     datetime->len = 0;
 
-    ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_hls_module);
     hacf = ngx_rtmp_get_module_app_conf(s, ngx_rtmp_hls_module);
 
     switch (hacf->datetime) {
