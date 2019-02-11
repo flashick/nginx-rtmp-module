@@ -851,7 +851,6 @@ ngx_rtmp_hls_get_fragment_id(ngx_rtmp_session_t *s, uint64_t ts)
 static ngx_str_t *
 ngx_rtmp_hls_get_fragment_datetime(ngx_rtmp_session_t *s, uint64_t ts)
 {
-    ngx_rtmp_hls_ctx_t         *ctx;
     ngx_rtmp_hls_app_conf_t    *hacf;
     ngx_str_t                  *datetime;
     ngx_tm_t                    tm;
