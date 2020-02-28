@@ -109,6 +109,7 @@ typedef struct {
     ngx_msec_t                          max_audio_delay;
     size_t                              audio_buffer_size;
     ngx_flag_t                          cleanup;
+    ngx_flag_t                          reset_playlist_on_rm_dvr;
     ngx_array_t                        *variant;
     ngx_str_t                           base_url;
     ngx_int_t                           granularity;
@@ -275,6 +276,13 @@ static ngx_command_t ngx_rtmp_hls_commands[] = {
       ngx_conf_set_flag_slot,
       NGX_RTMP_APP_CONF_OFFSET,
       offsetof(ngx_rtmp_hls_app_conf_t, cleanup),
+      NULL },
+      
+    { ngx_string("hls_reset_playlist_on_rm_dvr"),
+      NGX_RTMP_MAIN_CONF|NGX_RTMP_SRV_CONF|NGX_RTMP_APP_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_flag_slot,
+      NGX_RTMP_APP_CONF_OFFSET,
+      offsetof(ngx_rtmp_hls_app_conf_t, reset_playlist_on_rm_dvr),
       NULL },
 
     { ngx_string("hls_variant"),
@@ -505,16 +513,14 @@ ngx_rtmp_hls_restore_stream(ngx_rtmp_session_t *s)
     off_t                           offset;
     u_char                         *p, *last, *end, *next, *pa, *pp, c;
     ngx_rtmp_hls_frag_t            *f;
+    ngx_rtmp_hls_app_conf_t        *hacf;
     double                          duration;
     ngx_int_t                       discont;
     uint64_t                        mag, key_id, base;
     static u_char                   buffer[4096];
 
+    hacf = ngx_rtmp_get_module_app_conf(s, ngx_rtmp_hls_module);
     ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_hls_module);
-
-    ngx_log_error(NGX_LOG_WARN, s->connection->log, 0,
-            "RESTORE STREAM %s", ctx->playlist.data);
-
 
     ngx_memzero(&file, sizeof(file));
 
@@ -524,12 +530,18 @@ ngx_rtmp_hls_restore_stream(ngx_rtmp_session_t *s)
     file.fd = ngx_open_file(ctx->playlist.data, NGX_FILE_RDONLY, NGX_FILE_OPEN,
                             0);
     if (file.fd == NGX_INVALID_FILE) {
-        ngx_log_error(NGX_LOG_WARN, s->connection->log, 0,
-                "RESTORE STREAM WITH CLEANUP %s", ctx->playlist.data);
-        ctx->nfrags = 0;
-        ctx->frag = 0;
+        if (hacf->reset_playlist_on_rm_dvr) {
+            ngx_log_error(NGX_LOG_WARN, s->connection->log, 0,
+                    "RESTORE STREAM WITH CLEANUP PLAYLIST %s", ctx->playlist.data);
+            ctx->nfrags = 0;
+            ctx->frag = 0;
+        }
         return;
     }
+
+    ngx_log_error(NGX_LOG_WARN, s->connection->log, 0,
+            "RESTORE STREAM %s", ctx->playlist.data);
+
 
     offset = 0;
     ctx->nfrags = 0;
@@ -718,11 +730,23 @@ ngx_rtmp_hls_write_playlist(ngx_rtmp_session_t *s)
     hacf = ngx_rtmp_get_module_app_conf(s, ngx_rtmp_hls_module);
     ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_hls_module);
 
+    ngx_log_error(NGX_LOG_ERR, s->connection->log, ngx_errno,
+                    "OPOPOP '%d'",
+                    hacf->reset_playlist_on_rm_dvr);
+    ngx_log_error(NGX_LOG_ERR, s->connection->log, ngx_errno,
+                    "OPOPOP CLEANUP'%d'",
+                    hacf->cleanup);
+
     fd = ngx_open_file(ctx->playlist_bak.data, NGX_FILE_WRONLY,
                        NGX_FILE_TRUNCATE, NGX_FILE_DEFAULT_ACCESS);
 
     if (fd == NGX_INVALID_FILE) {
-        goto restore_err;
+        if (hacf->reset_playlist_on_rm_dvr) {
+            goto restore_err;
+        }
+        else {
+            goto write_err;
+        }
     }
 
     max_frag = hacf->fraglen / 1000;
@@ -2399,6 +2423,7 @@ ngx_rtmp_hls_create_app_conf(ngx_conf_t *cf)
     conf->type = NGX_CONF_UNSET_UINT;
     conf->max_audio_delay = NGX_CONF_UNSET_MSEC;
     conf->audio_buffer_size = NGX_CONF_UNSET_SIZE;
+    conf->reset_playlist_on_rm_dvr = NGX_CONF_UNSET;
     conf->cleanup = NGX_CONF_UNSET;
     conf->granularity = NGX_CONF_UNSET;
     conf->keys = NGX_CONF_UNSET;
@@ -2437,6 +2462,7 @@ ngx_rtmp_hls_merge_app_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_conf_merge_size_value(conf->audio_buffer_size, prev->audio_buffer_size,
                               NGX_RTMP_HLS_BUFSIZE);
     ngx_conf_merge_value(conf->cleanup, prev->cleanup, 1);
+    ngx_conf_merge_value(conf->reset_playlist_on_rm_dvr, prev->reset_playlist_on_rm_dvr, 0);
     ngx_conf_merge_str_value(conf->base_url, prev->base_url, "");
     ngx_conf_merge_value(conf->granularity, prev->granularity, 0);
     ngx_conf_merge_value(conf->keys, prev->keys, 0);
