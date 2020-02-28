@@ -730,13 +730,6 @@ ngx_rtmp_hls_write_playlist(ngx_rtmp_session_t *s)
     hacf = ngx_rtmp_get_module_app_conf(s, ngx_rtmp_hls_module);
     ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_hls_module);
 
-    ngx_log_error(NGX_LOG_ERR, s->connection->log, ngx_errno,
-                    "OPOPOP '%d'",
-                    hacf->reset_playlist_on_rm_dvr);
-    ngx_log_error(NGX_LOG_ERR, s->connection->log, ngx_errno,
-                    "OPOPOP CLEANUP'%d'",
-                    hacf->cleanup);
-
     fd = ngx_open_file(ctx->playlist_bak.data, NGX_FILE_WRONLY,
                        NGX_FILE_TRUNCATE, NGX_FILE_DEFAULT_ACCESS);
 
