@@ -64,6 +64,7 @@ typedef struct {
     u_char                              key[16];
 
     uint64_t                            frag;
+    unsigned                            discount;
     uint64_t                            frag_ts;
     uint64_t                            key_id;
     ngx_uint_t                          nfrags;
@@ -517,6 +518,7 @@ ngx_rtmp_hls_restore_stream(ngx_rtmp_session_t *s)
     double                          duration;
     ngx_int_t                       discont;
     uint64_t                        mag, key_id, base;
+    ngx_rtmp_hls_frag_t            *last_frag;
     static u_char                   buffer[4096];
 
     hacf = ngx_rtmp_get_module_app_conf(s, ngx_rtmp_hls_module);
@@ -533,8 +535,10 @@ ngx_rtmp_hls_restore_stream(ngx_rtmp_session_t *s)
         if (hacf->reset_playlist_on_rm_dvr) {
             ngx_log_error(NGX_LOG_WARN, s->connection->log, 0,
                     "RESTORE STREAM WITH CLEANUP PLAYLIST %s", ctx->playlist.data);
+            last_frag = ngx_rtmp_hls_get_frag(s, ctx->nfrags -1);
+            ctx->frag = last_frag->id + 1;
             ctx->nfrags = 0;
-            ctx->frag = 0;
+            ctx->discount = 1;
         }
         return;
     }
@@ -810,6 +814,11 @@ ngx_rtmp_hls_write_playlist(ngx_rtmp_session_t *s)
 
         p = buffer;
         end = p + sizeof(buffer);
+
+        if (ctx->discount) {
+            f->discont = 1;
+            ctx->discount = 0;
+        }
 
         if (f->discont) {
             p = ngx_slprintf(p, end, "#EXT-X-DISCONTINUITY\n");
