@@ -1187,10 +1187,11 @@ ngx_rtmp_hls_open_fragment(ngx_rtmp_session_t *s, uint64_t ts,
     uint64_t                  id;
     ngx_fd_t                  fd;
     ngx_str_t                *datetime;
-    ngx_uint_t                g;
+    ngx_uint_t                g, mpegts_cc;
     ngx_rtmp_hls_ctx_t       *ctx;
     ngx_rtmp_hls_frag_t      *f;
     ngx_rtmp_hls_app_conf_t  *hacf;
+    ngx_rtmp_codec_ctx_t     *codec_ctx;
 
     ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_hls_module);
 
@@ -1285,8 +1286,12 @@ ngx_rtmp_hls_open_fragment(ngx_rtmp_session_t *s, uint64_t ts,
         return NGX_ERROR;
     }
 
+    codec_ctx = ngx_rtmp_get_module_ctx(s, ngx_rtmp_codec_module);
+    // This is continuity counter for TS header
+    mpegts_cc = (ctx->nfrags + ctx->frag);
+
     if (ngx_rtmp_mpegts_open_file(&ctx->file, ctx->stream.data,
-                                  s->connection->log)
+                                  s->connection->log, codec_ctx, mpegts_cc)
         != NGX_OK)
     {
         return NGX_ERROR;

@@ -3,10 +3,11 @@
  * Copyright (C) Roman Arutyunyan
  */
 
-
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include "ngx_rtmp_mpegts.h"
+
+#include "ngx_rtmp_codec_module.h"
 
 
 static u_char ngx_rtmp_mpegts_header[] = {
@@ -69,6 +70,19 @@ static u_char ngx_rtmp_mpegts_header[] = {
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff
 };
+
+
+static u_char ngx_rtmp_mpegts_header_aac[] = {
+    0x0f, 0xe1, 0x01, 0xf0, 0x00, /* aac */
+    /* CRC */
+    0x2f, 0x44, 0xb9, 0x9b, /* crc for aac */
+};
+
+// static u_char ngx_rtmp_mpegts_header_mp3[] = {
+//     0x03, 0xe1, 0x01, 0xf0, 0x00, /* mp3 */
+//     /* CRC */
+//     0x4e, 0x59, 0x3d, 0x1e, /* crc for mp3 */
+// };
 
 
 /* 700 ms PCR delay */
@@ -155,10 +169,72 @@ ngx_rtmp_mpegts_write_file(ngx_rtmp_mpegts_file_t *file, u_char *in,
 
 
 static ngx_int_t
-ngx_rtmp_mpegts_write_header(ngx_rtmp_mpegts_file_t *file)
+ngx_rtmp_mpegts_write_header(ngx_rtmp_mpegts_file_t *file, ngx_rtmp_codec_ctx_t *codec_ctx, ngx_uint_t mpegts_cc)
 {
-    return ngx_rtmp_mpegts_write_file(file, ngx_rtmp_mpegts_header,
-                                      sizeof(ngx_rtmp_mpegts_header));
+    ngx_int_t rc;
+
+    //If there's both audio and video present
+    if (codec_ctx->audio_codec_id && codec_ctx->video_codec_id)
+    {
+        if (codec_ctx->audio_codec_id == NGX_RTMP_AUDIO_AAC) {
+            ngx_memcpy(ngx_rtmp_mpegts_header+210, ngx_rtmp_mpegts_header_aac, 
+                                            sizeof(ngx_rtmp_mpegts_header_aac));
+        }
+        //if (*audio_codec_id == NGX_RTMP_AUDIO_MP3) {
+        //else {
+        //     ngx_memcpy(ngx_rtmp_mpegts_header+210, ngx_rtmp_mpegts_header_mp3, 
+        //                                     sizeof(ngx_rtmp_mpegts_header_mp3));
+        //}
+
+        // Truncate counter to 4 bits here
+        mpegts_cc %= 0x0f;
+        // And fill headers
+        ngx_rtmp_mpegts_header[3] = (ngx_rtmp_mpegts_header[3] & 0xf0) + (u_char)mpegts_cc;
+        ngx_rtmp_mpegts_header[191] = (ngx_rtmp_mpegts_header[191] & 0xf0) + (u_char)mpegts_cc;
+
+        rc = ngx_rtmp_mpegts_write_file(file, ngx_rtmp_mpegts_header,
+                                          sizeof(ngx_rtmp_mpegts_header));
+    }
+    else
+    {
+        //Just video or just audio
+        u_char buf[sizeof(ngx_rtmp_mpegts_header)];
+
+        ngx_memcpy(buf, ngx_rtmp_mpegts_header, sizeof(ngx_rtmp_mpegts_header));
+        
+        /* Fix the section length */
+        buf[195] = 0x12;
+
+        if (codec_ctx->audio_codec_id)
+        {
+          /* Set the PCR PID to the audio PID */
+          buf[202] = 0x01;
+
+          /* Move the audio description over the video description */
+          ngx_memcpy(buf + 205, buf + 210, 5);
+
+          /* Fix the CRC partially overwriting the audio description */
+          buf[210] = 0xec;
+          buf[211] = 0xe2;
+          buf[212] = 0xb0;
+          buf[213] = 0x94;
+        }
+        else
+        {
+          /* Fix the CRC partially overwriting the audio description */
+          buf[210] = 0x15;
+          buf[211] = 0xbd;
+          buf[212] = 0x4d;
+          buf[213] = 0x56;
+        }
+
+        /* Clear the last byte of the audio description and the old CRC */
+        ngx_memset(buf + 214, 0xff, 5);
+
+        rc = ngx_rtmp_mpegts_write_file(file, buf, sizeof(buf));
+    }
+
+    return rc;
 }
 
 
@@ -192,7 +268,7 @@ ngx_rtmp_mpegts_write_pts(u_char *p, ngx_uint_t fb, uint64_t pts)
     *p++ = (u_char) (val >> 8);
     *p++ = (u_char) val;
 
-    return p;
+   return p;
 }
 
 
@@ -350,7 +426,7 @@ ngx_rtmp_mpegts_init_encryption(ngx_rtmp_mpegts_file_t *file,
 
 ngx_int_t
 ngx_rtmp_mpegts_open_file(ngx_rtmp_mpegts_file_t *file, u_char *path,
-    ngx_log_t *log)
+    ngx_log_t *log, ngx_rtmp_codec_ctx_t *codec_ctx, ngx_uint_t mpegts_cc)
 {
     file->log = log;
 
@@ -365,7 +441,7 @@ ngx_rtmp_mpegts_open_file(ngx_rtmp_mpegts_file_t *file, u_char *path,
 
     file->size = 0;
 
-    if (ngx_rtmp_mpegts_write_header(file) != NGX_OK) {
+    if (ngx_rtmp_mpegts_write_header(file, codec_ctx, mpegts_cc) != NGX_OK) {
         ngx_log_error(NGX_LOG_ERR, log, ngx_errno,
                       "hls: error writing fragment header");
         ngx_close_file(file->fd);
