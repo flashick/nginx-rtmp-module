@@ -418,7 +418,8 @@ ngx_rtmp_hls_write_variant_playlist(ngx_rtmp_session_t *s)
 {
     static u_char             buffer[1024];
 
-    u_char                   *p, *last;
+    u_char                   *p, *last, *psuffix;
+    int                       isuffix;
     ssize_t                   rc;
     ngx_fd_t                  fd;
     ngx_str_t                *arg;
@@ -452,39 +453,64 @@ ngx_rtmp_hls_write_variant_playlist(ngx_rtmp_session_t *s)
         ngx_close_file(fd);
         return NGX_ERROR;
     }
-
     var = hacf->variant->elts;
+
     for (n = 0; n < hacf->variant->nelts; n++, var++)
     {
+        // Get 1 from _1 
+        isuffix = 0;
+        psuffix = var->suffix.data + 1;
+        if isdigit(*psuffix) {
+            isuffix = ngx_atoi(psuffix, var->suffix.len -1);
+        }
+
         p = buffer;
         last = buffer + sizeof(buffer);
+        if (isuffix < 1000) {
+            // VIDEO Streams
+            p = ngx_slprintf(p, last, "#EXT-X-STREAM-INF:PROGRAM-ID=1");
 
-        p = ngx_slprintf(p, last, "#EXT-X-STREAM-INF:PROGRAM-ID=1");
+            arg = var->args.elts;
+            for (k = 0; k < var->args.nelts; k++, arg++) {
+                p = ngx_slprintf(p, last, ",%V", arg);
+            }
 
-        arg = var->args.elts;
-        for (k = 0; k < var->args.nelts; k++, arg++) {
-            p = ngx_slprintf(p, last, ",%V", arg);
+            if (p < last) {
+                *p++ = '\n';
+            }
+
+            p = ngx_slprintf(p, last, "%V%*s%V",
+                            &hacf->base_url,
+                            ctx->name.len - ctx->var->suffix.len, ctx->name.data,
+                            &var->suffix);
+            if (hacf->nested) {
+                p = ngx_slprintf(p, last, "%s", "/index");
+            }
+
+            p = ngx_slprintf(p, last, "%s", ".m3u8\n");
+        } else {
+            // AUDIO STREAMS
+            p = ngx_slprintf(p, last, "#EXT-X-MEDIA:TYPE=AUDIO");
+            
+            arg = var->args.elts;
+            for (k = 0; k < var->args.nelts; k++, arg++) {
+                p = ngx_slprintf(p, last, ",%V", arg);
+            }
+            p = ngx_slprintf(p, last, ",URI=\"%V%*s%V",
+                            &hacf->base_url,
+                            ctx->name.len - ctx->var->suffix.len, ctx->name.data,
+                            &var->suffix);
+            if (hacf->nested) {
+                p = ngx_slprintf(p, last, "%s", "/index");
+            }
+
+            p = ngx_slprintf(p, last, "%s", ".m3u8\"\n");
         }
-
-        if (p < last) {
-            *p++ = '\n';
-        }
-
-        p = ngx_slprintf(p, last, "%V%*s%V",
-                         &hacf->base_url,
-                         ctx->name.len - ctx->var->suffix.len, ctx->name.data,
-                         &var->suffix);
-        if (hacf->nested) {
-            p = ngx_slprintf(p, last, "%s", "/index");
-        }
-
-        p = ngx_slprintf(p, last, "%s", ".m3u8\n");
-
         rc = ngx_write_fd(fd, buffer, p - buffer);
         if (rc < 0) {
             ngx_log_error(NGX_LOG_ERR, s->connection->log, ngx_errno,
-                          "hls: " ngx_write_fd_n " failed '%V'",
-                          &ctx->var_playlist_bak);
+                        "hls: " ngx_write_fd_n " failed '%V'",
+                        &ctx->var_playlist_bak);
             ngx_close_file(fd);
             return NGX_ERROR;
         }
