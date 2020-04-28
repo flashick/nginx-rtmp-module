@@ -601,12 +601,12 @@ ngx_rtmp_dash_close_fragment(ngx_rtmp_session_t *s, ngx_rtmp_dash_track_t *t)
     while (left > 0) {
 
         n = ngx_read_fd(t->fd, buffer, ngx_min(sizeof(buffer), left));
-        if (n == NGX_ERROR) {
+        if (n == NGX_ERROR || n == 0) {
             break;
         }
 
         n = ngx_write_fd(fd, buffer, (size_t) n);
-        if (n == NGX_ERROR) {
+        if (n == NGX_ERROR || n == 0) {
             break;
         }
 
@@ -1249,7 +1249,6 @@ ngx_rtmp_dash_cleanup_dir(ngx_str_t *ppath, ngx_msec_t playlen)
 
     for ( ;; ) {
         ngx_set_errno(0);
-
         if (ngx_read_dir(&dir) == NGX_ERROR) {
             err = ngx_errno;
 
